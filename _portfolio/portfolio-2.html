@@ -7,3 +7,640 @@ collection: portfolio
 This is an item in your portfolio. It can be have images or nice text. If you name the file .md, it will be parsed as markdown. If you name the file .html, it will be parsed as HTML. 
 
 Hello world!
+
+
+Pair trading¶
+In [59]:
+import numpy as np
+import pandas as pd
+import statsmodels
+import statsmodels.api as sm
+from statsmodels.tsa.stattools import coint, adfuller
+import scipy.stats as ss
+import matplotlib.pyplot as plt
+import seaborn as sns; sns.set(style="whitegrid")
+import datetime
+import yfinance as yf
+
+Download data¶
+In [3]:
+SP500_cons = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]
+
+Show some data¶
+In [11]:
+SP500_cons
+Out[11]:
+
+Symbol
+Security
+GICS Sector
+GICS Sub-Industry
+Headquarters Location
+Date added
+CIK
+Founded
+0
+MMM
+3M
+Industrials
+Industrial Conglomerates
+Saint Paul, Minnesota
+1957-03-04
+66740
+1902
+1
+AOS
+A. O. Smith
+Industrials
+Building Products
+Milwaukee, Wisconsin
+2017-07-26
+91142
+1916
+2
+ABT
+Abbott
+Health Care
+Health Care Equipment
+North Chicago, Illinois
+1957-03-04
+1800
+1888
+3
+ABBV
+AbbVie
+Health Care
+Biotechnology
+North Chicago, Illinois
+2012-12-31
+1551152
+2013 (1888)
+4
+ACN
+Accenture
+Information Technology
+IT Consulting & Other Services
+Dublin, Ireland
+2011-07-06
+1467373
+1989
+...
+...
+...
+...
+...
+...
+...
+...
+...
+498
+YUM
+Yum! Brands
+Consumer Discretionary
+Restaurants
+Louisville, Kentucky
+1997-10-06
+1041061
+1997
+499
+ZBRA
+Zebra Technologies
+Information Technology
+Electronic Equipment & Instruments
+Lincolnshire, Illinois
+2019-12-23
+877212
+1969
+500
+ZBH
+Zimmer Biomet
+Health Care
+Health Care Equipment
+Warsaw, Indiana
+2001-08-07
+1136869
+1927
+501
+ZION
+Zions Bancorporation
+Financials
+Regional Banks
+Salt Lake City, Utah
+2001-06-22
+109380
+1873
+502
+ZTS
+Zoetis
+Health Care
+Pharmaceuticals
+Parsippany, New Jersey
+2013-06-21
+1555280
+1952
+503 rows × 8 columns
+In [17]:
+# SP500_cons.loc[:, 'GICS Sub-Industry']
+pd.pivot_table(SP500_cons, index='GICS Sub-Industry', values='Founded', aggfunc='count').sort_values(by='Founded', ascending=False)
+Out[17]:
+
+Founded
+GICS Sub-Industry
+
+Health Care Equipment
+18
+Semiconductors
+15
+Electric Utilities
+14
+Industrial Machinery & Supplies & Components
+14
+Multi-Utilities
+12
+...
+...
+Other Specialized REITs
+1
+Household Appliances
+1
+Industrial REITs
+1
+Multi-Sector Holdings
+1
+Wireless Telecommunication Services
+1
+125 rows × 1 columns
+In [82]:
+start = datetime.datetime(2020, 3, 8)
+end = datetime.datetime(2024, 1, 1)
+
+_id = SP500_cons.loc[:, 'GICS Sub-Industry'] == 'Semiconductors'
+
+tickers = list(SP500_cons.loc[_id, 'Symbol'])
+
+df = yf.download(tickers, start=start, end=end)['Close']
+df.tail()
+
+[*********************100%***********************]  15 of 15 completed
+Out[82]:
+
+ADI
+AMD
+AVGO
+FSLR
+INTC
+MCHP
+MPWR
+MU
+NVDA
+NXPI
+ON
+QCOM
+QRVO
+SWKS
+TXN
+Date
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+2023-12-22
+197.100006
+139.600006
+1121.979980
+170.389999
+48.000000
+90.190002
+617.640015
+86.489998
+488.299988
+228.949997
+84.010002
+143.490005
+112.599998
+112.839996
+168.240005
+2023-12-26
+198.869995
+143.410004
+1131.890015
+171.940002
+50.500000
+91.309998
+637.039978
+87.059998
+492.790009
+231.949997
+85.470001
+145.460007
+114.379997
+114.510002
+170.809998
+2023-12-27
+199.350006
+146.070007
+1126.170044
+172.440002
+50.759998
+91.120003
+636.559998
+86.660004
+494.170013
+232.100006
+85.050003
+145.720001
+114.610001
+114.410004
+171.229996
+2023-12-28
+200.240005
+148.759995
+1122.410034
+173.220001
+50.389999
+90.839996
+632.219971
+86.000000
+495.220001
+231.070007
+84.980003
+145.860001
+114.180000
+113.919998
+171.720001
+2023-12-29
+198.559998
+147.410004
+1116.250000
+172.279999
+50.250000
+90.180000
+630.780029
+85.339996
+495.220001
+229.679993
+83.529999
+144.630005
+112.610001
+112.419998
+170.460007
+In [369]:
+pvalue_threshold = 0.2
+def find_cointegrated_pairs(data):
+    n = data.shape[1]
+    score_matrix = np.zeros((n, n))
+    pvalue_matrix = np.ones((n, n))
+    keys = data.keys()
+    pairs = []
+    for i in range(n):
+        for j in range(i+1, n):
+            S1 = data[keys[i]]
+            S2 = data[keys[j]]
+
+            result = coint(S1, S2)
+
+            score = result[0]
+            pvalue = result[1]
+            score_matrix[i, j] = score
+            pvalue_matrix[i, j] = pvalue
+            if pvalue <= pvalue_threshold:
+                pairs.append((keys[i], keys[j]))
+    return score_matrix, pvalue_matrix, pairs
+In [370]:
+scores, pvalues, pairs = find_cointegrated_pairs(df)
+import seaborn
+fig, ax = plt.subplots(figsize=(10,10))
+seaborn.heatmap(pvalues, xticklabels=df.columns, yticklabels=df.columns, cmap='RdYlGn_r' 
+                , mask = (pvalues >= pvalue_threshold)
+                )
+print(pairs)
+
+[('ADI', 'FSLR'), ('ADI', 'MCHP'), ('ADI', 'MPWR'), ('ADI', 'ON'), ('MCHP', 'MPWR'), ('MCHP', 'NVDA'), ('MCHP', 'NXPI'), ('MPWR', 'NXPI'), ('QRVO', 'SWKS')]
+
+￼ 
+In [372]:
+j = 1
+ticker1 = pairs[j][0]
+ticker2 = pairs[j][1]
+print(ticker1, ticker2)
+
+ADI MCHP
+In [373]:
+S1 = df[ticker1]
+S2 = df[ticker2]
+
+score, pvalue, _ = coint(S1, S2)
+pvalue
+Out[373]:
+0.047720233230840084
+In [374]:
+S1 = sm.add_constant(S1)
+results = sm.OLS(S2, S1).fit()
+S1 = S1[ticker1]
+b = results.params[ticker1]
+
+spread = S2 - b * S1
+spread.plot(figsize=(12,6))
+plt.axhline(spread.mean(), color='black')
+# plt.xlim('2013-01-01', '2018-01-01')
+plt.legend(['Spread'])
+Out[374]:
+<matplotlib.legend.Legend at 0x7faab789b070>
+
+￼ 
+In [375]:
+ss.skew(spread), ss.kurtosis(spread)
+Out[375]:
+(0.06917965158243101, -0.4507966234796563)
+In [376]:
+sns.displot(spread, kde=True)
+plt.axvline(spread.mean(), color='black')
+Out[376]:
+<matplotlib.lines.Line2D at 0x7faab7963580>
+
+￼ 
+In [377]:
+q1 = np.quantile(spread, 0.1)
+q2 = np.quantile(spread, 0.9)
+q3a = np.quantile(spread, 0.6)
+q3b = np.quantile(spread, 0.4)
+
+# spread = S2 - b * S1
+spread.plot(figsize=(12,6))
+plt.axhline(spread.mean(), color='black')
+plt.axhline(q1, color='red')
+plt.axhline(q2, color='green')
+# plt.xlim('2013-01-01', '2018-01-01')
+plt.legend(['Spread'])
+Out[377]:
+<matplotlib.legend.Legend at 0x7faab5e92890>
+
+￼ 
+In [378]:
+q1 = np.quantile(spread, 0.1)
+q2 = np.quantile(spread, 0.9)
+signal1 = spread<=q1
+signal2 = spread>=q2
+signal3 = np.logical_or(spread>=q3a,spread<=q3b)
+In [379]:
+fig, ax = plt.subplots(2,1, figsize=(12,8))
+ax1, ax2 = ax
+
+ax1.set_title(ticker1)
+ax1.plot(S1)
+ax1.scatter(S1.loc[signal1].index, S1.loc[signal1], color='green', marker='x', zorder=10)
+ax1.scatter(S1.loc[signal2].index, S1.loc[signal2], color='red', marker='x', zorder=10)
+
+ax2.set_title(ticker2)
+ax2.plot(S2)
+ax2.scatter(S2.loc[signal1].index, S2.loc[signal1], color='red', marker='x', zorder=10)
+ax2.scatter(S2.loc[signal2].index, S2.loc[signal2], color='green', marker='x', zorder=10)
+Out[379]:
+<matplotlib.collections.PathCollection at 0x7faab874e9e0>
+
+￼ 
+In [380]:
+ratios = S1/S2
+In [381]:
+money = 0
+countS1 = 0
+countS2 = 0
+
+money_arr = []
+countS1_arr = []
+countS2_arr = []
+
+for i in range(len(ratios)):
+    # Sell short if the z-score is > 1
+    if signal1.iloc[i]:
+        money += S1[i] - S2[i] * ratios[i]
+        countS1 -= 1
+        countS2 += ratios[i]
+        #print('Selling Ratio %s %s %s %s'%(money, ratios[i], countS1, countS2))
+    # Buy long if the z-score is < -1
+    elif signal2.iloc[i]:
+        money -= S1[i] - S2[i] * ratios[i]
+        countS1 += 1
+        countS2 -= ratios[i]
+        #print('Buying Ratio %s %s %s %s'%(money,ratios[i], countS1, countS2))
+    # Clear positions if the z-score between -.5 and .5
+    # elif signal3.iloc[i]:
+    #     money += S1[i] * countS1 + S2[i] * countS2
+    #     countS1 = 0
+    #     countS2 = 0
+
+    money_arr.append(money)
+    countS1_arr.append(countS1)
+    countS2_arr.append(countS2)
+In [382]:
+plt.plot(money_arr)
+Out[382]:
+[<matplotlib.lines.Line2D at 0x7faab8b98be0>]
+
+￼ 
+In [383]:
+plt.plot(countS1_arr)
+plt.plot(countS2_arr)
+Out[383]:
+[<matplotlib.lines.Line2D at 0x7faab78dbd90>]
+
+￼ 
+In [384]:
+short_penalty = 0.05/365 # 5% interest rate for short selling
+
+def params_opt(p1, p2):
+    q1 = np.quantile(spread, p1)
+    q2 = np.quantile(spread, p2)
+    
+    signal1 = spread <= q1
+    signal2 = spread >= q2
+
+    money = 0
+    countS1 = 0
+    countS2 = 0
+
+    money_arr = []
+    countS1_arr = []
+    countS2_arr = []
+
+    for i in range(len(ratios)):
+        if signal1.iloc[i]:
+            money   += S1[i] - S2[i] * ratios[i]
+            countS1 -= 1
+            countS2 += ratios[i]
+
+        elif signal2.iloc[i]:
+            money   -= S1[i] - S2[i] * ratios[i]
+            countS1 += 1
+            countS2 -= ratios[i]
+
+        money_arr.append(money)
+        countS1_arr.append(countS1)
+        countS2_arr.append(countS2)
+        
+    # Close all positions
+    money += S1.iloc[-1]*countS1 + S2.iloc[-1]*countS2
+    
+    # Penalise short selling
+    _short_S1_id = np.array(countS1_arr)<0
+    short_penalty_S1 = np.sum(np.array(countS1_arr)*short_penalty*np.array(S1)*_short_S1_id)
+    
+    _short_S2_id = np.array(countS2_arr)<0
+    short_penalty_S2 = np.sum(np.array(countS2_arr)*short_penalty*np.array(S2)*_short_S2_id)
+
+    money += short_penalty_S1
+    money += short_penalty_S2
+    
+    print('%.2f %.2f %.2f'%(money, p1, p2))
+    return money, money_arr, countS1_arr, countS2_arr, signal1, signal2
+
+def loss(params):
+    if params[0] <= 0:
+        return 500000
+    
+    if params[0] >= 0.5:
+        return 500000
+    
+    if params[1] <= 0.5:
+        return 500000
+    
+    if params[1] >= 1:
+        return 500000
+    
+    return -params_opt(params[0], params[1])[0]
+In [385]:
+import scipy
+params = scipy.optimize.fmin(loss, (0.1,0.9))
+print(params)
+
+3466.85 0.10 0.90
+3516.85 0.11 0.90
+2985.85 0.10 0.95
+3490.84 0.11 0.85
+3616.01 0.11 0.85
+3691.37 0.12 0.83
+3801.98 0.12 0.88
+3849.07 0.12 0.89
+3983.84 0.13 0.82
+4227.90 0.14 0.78
+4728.86 0.15 0.84
+5169.93 0.16 0.84
+5372.27 0.19 0.73
+5709.10 0.22 0.66
+6659.16 0.24 0.72
+7487.68 0.29 0.68
+6060.29 0.21 0.76
+7121.23 0.28 0.78
+8082.84 0.36 0.71
+8482.44 0.44 0.69
+8685.24 0.45 0.59
+8244.48 0.37 0.66
+8490.75 0.40 0.65
+8407.38 0.41 0.55
+8599.37 0.43 0.65
+8723.24 0.47 0.59
+8713.94 0.49 0.53
+8714.26 0.46 0.57
+8673.56 0.45 0.64
+8722.21 0.48 0.55
+8780.77 0.49 0.57
+8703.99 0.48 0.61
+8749.18 0.48 0.57
+8738.86 0.49 0.55
+8789.52 0.49 0.56
+8792.12 0.50 0.56
+8765.06 0.50 0.55
+8788.69 0.49 0.57
+8770.57 0.50 0.56
+8781.95 0.49 0.56
+8789.89 0.49 0.56
+8774.82 0.49 0.56
+8785.61 0.50 0.56
+8793.94 0.50 0.56
+8791.41 0.49 0.56
+8791.75 0.50 0.56
+8794.86 0.50 0.56
+8785.61 0.50 0.56
+8794.86 0.50 0.56
+8786.08 0.50 0.56
+8793.21 0.50 0.56
+8794.86 0.50 0.56
+8793.21 0.50 0.56
+8791.75 0.50 0.56
+8794.86 0.50 0.56
+8792.12 0.50 0.56
+8794.86 0.50 0.56
+8794.86 0.50 0.56
+8794.86 0.50 0.56
+8792.12 0.50 0.56
+8794.86 0.50 0.56
+8794.86 0.50 0.56
+8794.86 0.50 0.56
+8794.86 0.50 0.56
+8794.86 0.50 0.56
+8794.86 0.50 0.56
+8794.86 0.50 0.56
+Optimization terminated successfully.
+         Current function value: -8794.860363
+         Iterations: 34
+         Function evaluations: 76
+[0.49757078 0.5623172 ]
+In [386]:
+plt.plot(params_opt(params[0], params[1])[1])
+
+8794.86 0.50 0.56
+Out[386]:
+[<matplotlib.lines.Line2D at 0x7faab76127a0>]
+
+￼ 
+In [387]:
+plt.plot(params_opt(params[0], params[1])[2])
+plt.plot(params_opt(params[0], params[1])[3])
+
+8794.86 0.50 0.56
+8794.86 0.50 0.56
+Out[387]:
+[<matplotlib.lines.Line2D at 0x7faab1e8d0c0>]
+
+￼ 
+In [388]:
+results = params_opt(params[0], params[1])
+
+S1_counts_arr = results[1]
+S2_counts_arr = results[2]
+
+_signal1 = results[4]
+_signal2 = results[5]
+
+8794.86 0.50 0.56
+In [389]:
+fig, ax = plt.subplots(2,1, figsize=(12,8))
+ax1, ax2 = ax
+
+ax1.set_title(ticker1)
+ax1.plot(S1)
+ax1.scatter(S1.loc[_signal1].index, S1.loc[_signal1], color='red', marker='x', zorder=10)
+ax1.scatter(S1.loc[_signal2].index, S1.loc[_signal2], color='green', marker='x', zorder=10)
+
+ax2.set_title(ticker2)
+ax2.plot(S2)
+ax2.scatter(S2.loc[_signal1].index, S2.loc[_signal1], color='green', marker='x', zorder=10)
+ax2.scatter(S2.loc[_signal2].index, S2.loc[_signal2], color='red', marker='x', zorder=10)
+Out[389]:
+<matplotlib.collections.PathCollection at 0x7faab8bb2680>
+
+￼ 
+In [ ]:
+ 
+
